@@ -100,7 +100,7 @@ def rms_norm_forward(
     # y (b l) d
     return y
 
-from mlsnapshotapi import MLSnapshot
+from mlsnapshot import MLSnapshot
 @MLSnapshot('mamba')
 def selective_scan_fn(u, delta, A, B, C, D=None, z=None, delta_bias=None, delta_softplus=False,
                      return_last_state=False):
