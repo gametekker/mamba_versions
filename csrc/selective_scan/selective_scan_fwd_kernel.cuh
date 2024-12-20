@@ -151,20 +151,25 @@ void selective_scan_fwd_kernel(SSMParamsBase params) {
         u += kChunkSize;
         delta += kChunkSize;
     
-        float delta_vals[T_COUNT][kNRows][kNItems], delta_u_vals[T_COUNT][kNRows][kNItems], out_vals[kNRows][kNItems]; //MODIFY
+        float delta_vals[T_COUNT][kNRows][kNItems], delta_u_vals[kNRows][kNItems], out_vals[kNRows][kNItems]; //MODIFY
         #pragma unroll
         for (int r = 0; r < kNRows; ++r) {
             #pragma unroll
             for (int i = 0; i < kNItems; ++i) {
                 int tv = 1; //MODIFY
+                float u_val = float(u_vals[r][i]); //MODIFY
+                delta_u_vals[r][i] = u_val; //MODIFY
                 for (int ti = 0; ti < T_COUNT; ++ti){//MODIFY
-                    float u_val = float(u_vals[r][i]);
+                    
                     delta_vals[ti][r][i] = float(delta_vals_load[r][i]/(float)tv) + delta_bias[r]; //MODIFY
                     if (params.delta_softplus) {
                         delta_vals[ti][r][i] = delta_vals[ti][r][i] <= 20.f ? log1pf(expf(delta_vals[ti][r][i])) : delta_vals[ti][r][i]; //MODIFY
                     }
-                    delta_u_vals[ti][r][i] = delta_vals[ti][r][i] * u_val; //MODIFY
-                    out_vals[r][i] = D_val[r] * u_val; //MODIFY
+                    if (ti==0){ //MODIFY
+                        out_vals[r][i] = D_val[r] * u_val; //MODIFY
+                    } else { //MODIFY
+                        out_vals[r][i] += D_val[r] * u_val; //MODIFY
+                    }
                     tv*=2; //MODIFY
                 }
             }
@@ -226,7 +231,7 @@ void selective_scan_fwd_kernel(SSMParamsBase params) {
                     for (int i = 0; i < kNItems; ++i) {
                         if constexpr (!kIsComplex) {
                             thread_data[i] = make_float2(exp2f(delta_vals[ti][r][i] * A_val[r]),
-                                                        !kIsVariableB ? delta_u_vals[ti][r][i] : B_vals[i] * delta_u_vals[ti][r][i]);
+                                                        !kIsVariableB ? delta_u_vals[r][i]*delta_vals[ti][r][i] : B_vals[i] * delta_u_vals[r][i]*delta_vals[ti][r][i]);
                             if constexpr (!Ktraits::kIsEvenLen) {  // So that the last state is correct
                                 if (threadIdx.x * kNItems + i >= params.seqlen - chunk * kChunkSize) {
                                     thread_data[i] = make_float2(1.f, 0.f);
@@ -235,7 +240,7 @@ void selective_scan_fwd_kernel(SSMParamsBase params) {
                         } else {
                             // Pytorch's implementation of complex exp (which calls thrust) is very slow
                             complex_t delta_a_exp = cexp2f(delta_vals[ti][r][i] * A_val[r]);
-                            weight_t B_delta_u_val = !kIsVariableB ? delta_u_vals[ti][r][i] : B_vals[i] * delta_u_vals[ti][r][i];
+                            weight_t B_delta_u_val = !kIsVariableB ? delta_u_vals[r][i]*delta_vals[ti][r][i] : B_vals[i] * delta_u_vals[r][i]*delta_vals[ti][r][i];
                             thread_data[i] = make_float4(delta_a_exp.real_, delta_a_exp.imag_, B_delta_u_val.real_, B_delta_u_val.imag_);
                             if constexpr (!Ktraits::kIsEvenLen) {  // So that the last state is correct
                                 if (threadIdx.x * kNItems + i >= params.seqlen - chunk * kChunkSize) {
